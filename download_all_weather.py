@@ -2,6 +2,7 @@
 # coding: utf-8
 
 from urllib.request import urlopen
+from collections import defaultdict
 import sqlite3
 import argparse
 
@@ -32,14 +33,14 @@ def download_stations(url='https://apex.oracle.com/pls/apex/raspberrypi/weathers
     """
     attempts = 0
     while attempts <= retry:
-        attempts += 1
-        try:
+        # attempts += 1
+        # try:
             response = urlopen(url)
             stations = eval(response.read().decode())
             break
-        except:
-            response = urlopen(url)
-            stations = eval(response.read().decode())
+        # except:
+            # response = urlopen(url)
+            # stations = eval(response.read().decode())
     return stations['items']
 
 
@@ -90,49 +91,53 @@ def populate_stations(stations, db):
     return conn    
 
 
-def download_measurements(station, db):
-    """Download all available measurements for a station and store them in a database.
-    
-    Args:
-        station (int/str): Weather station id
-        db (str): Path to a database
-        retry (int): How many times should it try to download data.
-    """
-    
-    
-    def download_measurement(url, retry = 10):
-        print(url)
-        attempts = 0
-        while attempts <= retry:
-            attempts += 1
-            try:
-                response = urlopen(url)
-                measurements = eval(response.read().decode())
-                break
-            except:
-                response = urlopen(url)
-                measurements = eval(response.read().decode())
-        if measurements:
-            with sqlite3.connect(db) as conn:
-                for measurement in measurements['items']:
-                    for key in measurement.keys():
-                        if key == 'weather_stn_id':
-                            conn.execute("INSERT OR IGNORE INTO Measurements(stations_id) VALUES(:weather_stn_id)", measurement)
-                        else:
-                            query = f"INSERT OR IGNORE INTO Measurements({key}) VALUES (?)"
-                            conn.execute(query, (measurement[key],))
-        return measurements
-    
-    
-        url = 'https://apex.oracle.com/pls/apex/raspberrypi/weatherstation/getlatestmeasurements/' + str(station)
-        while True:
-            try:
-                next_page = download_measurement(url)['next']
-            except KeyError:
-                break
-    return
+def download_measurement(url, conn):
+    response = urlopen(url)
+    measurements = eval(response.read().decode())
+    for data in measurements['items']:
+        measurement = defaultdict(type(None))
+        for reading, value in data.items():
+            measurement[reading] = value
+        query = """
+        INSERT OR IGNORE INTO Measurements(
+            air_pressure,
+            air_quality,
+            ambient_temp,
+            created_by,
+            created_on,
+            ground_temp,
+            humidity,
+            id,
+            rainfall,
+            reading_timestamp,
+            updated_by,
+            updated_on,
+            stations_id,
+            wind_direction,
+            wind_gust_speed,
+            wind_speed)
+        VALUES(
+            :air_pressure,
+            :air_quality,
+            :ambient_temp,
+            :created_by,
+            :created_on,
+            :ground_temp,
+            :humidity,
+            :id,
+            :rainfall,
+            :reading_timestamp,
+            :updated_by,
+            :updated_on,
+            :weather_stn_id,
+            :wind_direction,
+            :wind_gust_speed,
+            :wind_speed)"""
+        conn.execute(query, measurement)
+        print(query)
+    return measurements.get('next', dict()).get('$ref', None)
 
-
+        
 def download_all_weather():
     args = parse_arguments()
     db = args.database
@@ -140,9 +145,15 @@ def download_all_weather():
     populate_stations(stations, db)
     for station in stations:
         stations_id = station['weather_stn_id']
-        print(f'Downloading data for station {station}.')
-        download_measurements(stations_id, db)
-
+        print(f"Downloading data for station {stations_id}.")
+        url = 'https://apex.oracle.com/pls/apex/raspberrypi/weatherstation/getlatestmeasurements/' + str(stations_id)
+        with sqlite3.connect(db) as conn:
+            while True:
+                if url:
+                    print(url)
+                    url = download_measurement(url, conn)
+                else:
+                    break
 
 if __name__ == '__main__':
     download_all_weather()
