@@ -134,7 +134,6 @@ def download_measurement(url, conn):
             :wind_gust_speed,
             :wind_speed)"""
         conn.execute(query, measurement)
-        print(query)
     return measurements.get('next', dict()).get('$ref', None)
 
         
