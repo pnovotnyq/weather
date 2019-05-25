@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-from urllib.request import urlopen
+import requests
 from collections import defaultdict
 import sqlite3
 import argparse
@@ -33,14 +33,15 @@ def download_stations(url='https://apex.oracle.com/pls/apex/raspberrypi/weathers
     """
     attempts = 0
     while attempts <= retry:
-        # attempts += 1
-        # try:
-            response = urlopen(url)
-            stations = eval(response.read().decode())
-            break
-        # except:
-            # response = urlopen(url)
-            # stations = eval(response.read().decode())
+        attempts += 1
+        with requests.Session() as session:
+            try:
+                response = session.get(url)
+                stations = eval(response.text)
+                break
+            except:
+                response = session.get(url)
+                stations = eval(response.text)
     return stations['items']
 
 
@@ -91,9 +92,10 @@ def populate_stations(stations, db):
     return conn    
 
 
-def download_measurement(url, conn):
-    response = urlopen(url)
-    measurements = eval(response.read().decode())
+def download_measurement(url, conn, session):
+    with session:
+        response = session.get(url)
+    measurements = eval(response.text)
     for data in measurements['items']:
         measurement = defaultdict(type(None))
         for reading, value in data.items():
@@ -142,17 +144,18 @@ def download_all_weather():
     db = args.database
     stations = download_stations()
     populate_stations(stations, db)
-    for station in stations:
-        stations_id = station['weather_stn_id']
-        print(f"Downloading data for station {stations_id}.")
-        url = 'https://apex.oracle.com/pls/apex/raspberrypi/weatherstation/getlatestmeasurements/' + str(stations_id)
-        with sqlite3.connect(db) as conn:
-            while True:
-                if url:
-                    print(url)
-                    url = download_measurement(url, conn)
-                else:
-                    break
+    with requests.Session() as session:
+        for station in stations:
+            stations_id = station['weather_stn_id']
+            print(f"Downloading data for station {stations_id}.")
+            url = 'https://apex.oracle.com/pls/apex/raspberrypi/weatherstation/getlatestmeasurements/' + str(stations_id)
+            with sqlite3.connect(db) as conn:
+                while True:
+                    if url:
+                        print(url)
+                        url = download_measurement(url, conn, session)
+                    else:
+                        break
 
 if __name__ == '__main__':
     download_all_weather()
